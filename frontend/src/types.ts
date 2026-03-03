@@ -1,6 +1,7 @@
 export type RecordStatus = 'Pending' | 'Approved' | 'Rejected';
 
 export interface RecordMeta {
+  id?: string;
   status?: RecordStatus;
   created_at?: string;
   updated_at?: string;

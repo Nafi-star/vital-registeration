@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Birth {
+  id                String   @id @default(uuid())
+  birth_regno       String   @unique
+  child_name        String
+  mother_name       String
+  father_name       String
+  date_of_birth     String
+  sex               String
+  city              String
+  kebele            String
+  house_number      String
+  nationality       String
+  registration_date String
+  status            String   @default("Pending")
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  created_by        String?
+}
+
+model Death {
+  id                String   @id @default(uuid())
+  death_regno       String   @unique
+  name              String
+  date_of_birth     String
+  date_of_death     String
+  cause_of_death    String
+  sex               String
+  city              String
+  kebele            String
+  house_number      String
+  nationality       String
+  registration_date String
+  birth_regno       String?
+  status            String   @default("Pending")
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  created_by        String?
+}
+
+model Marriage {
+  id                 String   @id @default(uuid())
+  marriage_regno     String   @unique
+  husband_name       String
+  husband_age        Int
+  husband_nationality String
+  wife_name          String
+  wife_age           Int
+  wife_nationality   String
+  date_of_marriage   String
+  city               String
+  kebele             String
+  house_number       String
+  registration_date  String
+  status             String   @default("Pending")
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  created_by         String?
+}
+
+model Divorce {
+  id                 String   @id @default(uuid())
+  divorce_regno      String   @unique
+  husband_name       String
+  husband_age        Int
+  husband_nationality String
+  wife_name          String
+  wife_age           Int
+  wife_nationality   String
+  date_of_divorce    String
+  requester          String
+  city               String
+  kebele             String
+  house_number       String
+  registration_date  String
+  status             String   @default("Pending")
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  created_by         String?
+}

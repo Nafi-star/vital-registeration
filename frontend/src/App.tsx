@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import BirthRegistration from './components/BirthRegistration';
@@ -8,14 +8,18 @@ import DivorceRegistration from './components/DivorceRegistration';
 import SearchRecords from './components/SearchRecords';
 import CertificateView from './components/CertificateView';
 import { BirthRecord, DeathRecord, MarriageRecord, DivorceRecord } from './types';
-import {
-  initialBirthRecords,
-  initialDeathRecords,
-  initialMarriageRecords,
-  initialDivorceRecords,
-} from './mockRecords';
+import { birthsApi, deathsApi, marriagesApi, divorcesApi } from './api';
 
 type Page = 'dashboard' | 'birth' | 'death' | 'marriage' | 'divorce' | 'search' | 'certificates';
+
+function normalizeRecord<T>(r: T): T {
+  const o = r as T & { created_at?: unknown; updated_at?: unknown };
+  return {
+    ...r,
+    created_at: o.created_at != null ? String(o.created_at) : undefined,
+    updated_at: o.updated_at != null ? String(o.updated_at) : undefined,
+  } as T;
+}
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
@@ -24,53 +28,51 @@ function App() {
     record: BirthRecord | DeathRecord | MarriageRecord | DivorceRecord;
   } | null>(null);
 
-  const [birthRecords, setBirthRecords] = useState<BirthRecord[]>(initialBirthRecords);
-  const [deathRecords, setDeathRecords] = useState<DeathRecord[]>(initialDeathRecords);
-  const [marriageRecords, setMarriageRecords] = useState<MarriageRecord[]>(initialMarriageRecords);
-  const [divorceRecords, setDivorceRecords] = useState<DivorceRecord[]>(initialDivorceRecords);
+  const [birthRecords, setBirthRecords] = useState<BirthRecord[]>([]);
+  const [deathRecords, setDeathRecords] = useState<DeathRecord[]>([]);
+  const [marriageRecords, setMarriageRecords] = useState<MarriageRecord[]>([]);
+  const [divorceRecords, setDivorceRecords] = useState<DivorceRecord[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      birthsApi.getAll(),
+      deathsApi.getAll(),
+      marriagesApi.getAll(),
+      divorcesApi.getAll(),
+    ]).then(([births, deaths, marriages, divorces]) => {
+      setBirthRecords(births.map(normalizeRecord) as BirthRecord[]);
+      setDeathRecords(deaths.map(normalizeRecord) as DeathRecord[]);
+      setMarriageRecords(marriages.map(normalizeRecord) as MarriageRecord[]);
+      setDivorceRecords(divorces.map(normalizeRecord) as DivorceRecord[]);
+    });
+  }, []);
 
   const handleBirthSubmit = (record: BirthRecord) => {
-    const now = new Date().toISOString();
-    const completeRecord: BirthRecord = {
-      ...record,
-      status: 'Pending',
-      created_at: now,
-      updated_at: now,
-    };
-    setBirthRecords((prev) => [completeRecord, ...prev]);
+    birthsApi
+      .create(record)
+      .then((created) => setBirthRecords((prev) => [normalizeRecord(created), ...prev]))
+      .catch(console.error);
   };
 
   const handleDeathSubmit = (record: DeathRecord) => {
-    const now = new Date().toISOString();
-    const completeRecord: DeathRecord = {
-      ...record,
-      status: 'Pending',
-      created_at: now,
-      updated_at: now,
-    };
-    setDeathRecords((prev) => [completeRecord, ...prev]);
+    deathsApi
+      .create(record)
+      .then((created) => setDeathRecords((prev) => [normalizeRecord(created), ...prev]))
+      .catch(console.error);
   };
 
   const handleMarriageSubmit = (record: MarriageRecord) => {
-    const now = new Date().toISOString();
-    const completeRecord: MarriageRecord = {
-      ...record,
-      status: 'Pending',
-      created_at: now,
-      updated_at: now,
-    };
-    setMarriageRecords((prev) => [completeRecord, ...prev]);
+    marriagesApi
+      .create(record)
+      .then((created) => setMarriageRecords((prev) => [normalizeRecord(created), ...prev]))
+      .catch(console.error);
   };
 
   const handleDivorceSubmit = (record: DivorceRecord) => {
-    const now = new Date().toISOString();
-    const completeRecord: DivorceRecord = {
-      ...record,
-      status: 'Pending',
-      created_at: now,
-      updated_at: now,
-    };
-    setDivorceRecords((prev) => [completeRecord, ...prev]);
+    divorcesApi
+      .create(record)
+      .then((created) => setDivorceRecords((prev) => [normalizeRecord(created), ...prev]))
+      .catch(console.error);
   };
 
   const handleViewCertificate = (type: string, record: unknown) => {
