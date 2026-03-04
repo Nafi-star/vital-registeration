@@ -20,6 +20,14 @@ const translations: Record<Language, Record<string, string>> = {
     'page.search': 'Search Records',
     'page.certificates': 'View Certificate',
 
+    'dashboard.hero.tag': 'Digital vital registration',
+    'dashboard.hero.ctaPrimary': 'Start new registration',
+    'dashboard.hero.ctaSecondary': 'Search existing records',
+    'dashboard.activity.title': 'Activity overview',
+    'dashboard.activity.subtitle': 'Summary of records currently stored in the system.',
+    'dashboard.quickActions.title': 'Quick actions',
+    'dashboard.quickActions.subtitle': 'Jump directly into the most common tasks.',
+
     'dashboard.welcomeTitle': 'Welcome to Vital Events Registration System',
     'dashboard.welcomeBody':
       'Select an option below to register vital events, search records, or print certificates.',
