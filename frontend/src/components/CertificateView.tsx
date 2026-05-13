@@ -1,10 +1,28 @@
 import { Printer } from 'lucide-react';
 import { BirthRecord, DeathRecord, MarriageRecord, DivorceRecord } from '../types';
 import { useLanguage } from '../LanguageContext';
+import {
+  displayChildName,
+  displayMotherName,
+  displayFatherName,
+  displayDeceasedName,
+  displaySpouseName,
+} from '../utils/names';
 
 interface CertificateViewProps {
   type: string;
   record: BirthRecord | DeathRecord | MarriageRecord | DivorceRecord;
+}
+
+function formatAddress(city: string, kebele: string, house?: string | null) {
+  const h = house?.trim();
+  if (h) return `${city}, ${kebele}, House No. ${h}`;
+  return `${city}, ${kebele}`;
+}
+
+function displayRequester(r: string) {
+  if (r === 'Both') return 'Mutual';
+  return r;
 }
 
 export function CertificateView({ type, record }: CertificateViewProps) {
@@ -82,15 +100,15 @@ function BirthCertificate({ record }: { record: BirthRecord }) {
       </h2>
       <div className="space-y-4">
         <InfoRow label={t('certificate.field.registrationNumber')} value={record.birth_regno} />
-        <InfoRow label={t('certificate.field.childFullName')} value={record.child_name} />
+        <InfoRow label={t('certificate.field.childFullName')} value={displayChildName(record)} />
         <InfoRow label={t('certificate.field.dateOfBirth')} value={record.date_of_birth} />
         <InfoRow label={t('certificate.field.sex')} value={record.sex} />
         <InfoRow label={t('certificate.field.nationality')} value={record.nationality} />
-        <InfoRow label={t('certificate.field.motherFullName')} value={record.mother_name} />
-        <InfoRow label={t('certificate.field.fatherFullName')} value={record.father_name} />
+        <InfoRow label={t('certificate.field.motherFullName')} value={displayMotherName(record)} />
+        <InfoRow label={t('certificate.field.fatherFullName')} value={displayFatherName(record)} />
         <InfoRow
           label={t('certificate.field.placeOfBirth')}
-          value={`${record.city}, ${record.kebele}, House No. ${record.house_number}`}
+          value={formatAddress(record.city, record.kebele, record.house_number)}
         />
         <InfoRow label={t('certificate.field.registrationDate')} value={record.registration_date} />
       </div>
@@ -108,7 +126,7 @@ function DeathCertificate({ record }: { record: DeathRecord }) {
       </h2>
       <div className="space-y-4">
         <InfoRow label={t('certificate.field.registrationNumber')} value={record.death_regno} />
-        <InfoRow label={t('certificate.field.fullName')} value={record.name} />
+        <InfoRow label={t('certificate.field.fullName')} value={displayDeceasedName(record)} />
         <InfoRow label={t('certificate.field.dateOfBirth')} value={record.date_of_birth} />
         <InfoRow label={t('certificate.field.dateOfDeath')} value={record.date_of_death} />
         <InfoRow label={t('certificate.field.sex')} value={record.sex} />
@@ -119,7 +137,7 @@ function DeathCertificate({ record }: { record: DeathRecord }) {
         )}
         <InfoRow
           label={t('certificate.field.lastKnownAddress')}
-          value={`${record.city}, ${record.kebele}, House No. ${record.house_number}`}
+          value={formatAddress(record.city, record.kebele, record.house_number)}
         />
         <InfoRow label={t('certificate.field.registrationDate')} value={record.registration_date} />
       </div>
@@ -141,7 +159,7 @@ function MarriageCertificate({ record }: { record: MarriageRecord }) {
           <h3 className="font-semibold text-slate-900 mb-3">
             {t('certificate.field.husband')}
           </h3>
-          <InfoRow label={t('certificate.field.fullName')} value={record.husband_name} />
+          <InfoRow label={t('certificate.field.fullName')} value={displaySpouseName('husband', record)} />
           <InfoRow label={t('certificate.field.age')} value={record.husband_age.toString()} />
           <InfoRow
             label={t('certificate.field.nationality')}
@@ -152,7 +170,7 @@ function MarriageCertificate({ record }: { record: MarriageRecord }) {
           <h3 className="font-semibold text-slate-900 mb-3">
             {t('certificate.field.wife')}
           </h3>
-          <InfoRow label={t('certificate.field.fullName')} value={record.wife_name} />
+          <InfoRow label={t('certificate.field.fullName')} value={displaySpouseName('wife', record)} />
           <InfoRow label={t('certificate.field.age')} value={record.wife_age.toString()} />
           <InfoRow label={t('certificate.field.nationality')} value={record.wife_nationality} />
         </div>
@@ -162,7 +180,7 @@ function MarriageCertificate({ record }: { record: MarriageRecord }) {
         />
         <InfoRow
           label={t('certificate.field.address')}
-          value={`${record.city}, ${record.kebele}, House No. ${record.house_number}`}
+          value={formatAddress(record.city, record.kebele, record.house_number)}
         />
         <InfoRow label={t('certificate.field.registrationDate')} value={record.registration_date} />
       </div>
@@ -184,7 +202,7 @@ function DivorceCertificate({ record }: { record: DivorceRecord }) {
           <h3 className="font-semibold text-slate-900 mb-3">
             {t('certificate.field.husband')}
           </h3>
-          <InfoRow label={t('certificate.field.fullName')} value={record.husband_name} />
+          <InfoRow label={t('certificate.field.fullName')} value={displaySpouseName('husband', record)} />
           <InfoRow label={t('certificate.field.age')} value={record.husband_age.toString()} />
           <InfoRow
             label={t('certificate.field.nationality')}
@@ -195,7 +213,7 @@ function DivorceCertificate({ record }: { record: DivorceRecord }) {
           <h3 className="font-semibold text-slate-900 mb-3">
             {t('certificate.field.wife')}
           </h3>
-          <InfoRow label={t('certificate.field.fullName')} value={record.wife_name} />
+          <InfoRow label={t('certificate.field.fullName')} value={displaySpouseName('wife', record)} />
           <InfoRow label={t('certificate.field.age')} value={record.wife_age.toString()} />
           <InfoRow label={t('certificate.field.nationality')} value={record.wife_nationality} />
         </div>
@@ -203,10 +221,10 @@ function DivorceCertificate({ record }: { record: DivorceRecord }) {
           label={t('certificate.field.dateOfDivorce')}
           value={record.date_of_divorce}
         />
-        <InfoRow label={t('certificate.field.requestedBy')} value={record.requester} />
+        <InfoRow label={t('certificate.field.requestedBy')} value={displayRequester(record.requester)} />
         <InfoRow
           label={t('certificate.field.address')}
-          value={`${record.city}, ${record.kebele}, House No. ${record.house_number}`}
+          value={formatAddress(record.city, record.kebele, record.house_number)}
         />
         <InfoRow label={t('certificate.field.registrationDate')} value={record.registration_date} />
       </div>

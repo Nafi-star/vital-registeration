@@ -6,9 +6,10 @@ interface LayoutProps {
   children: ReactNode;
   titleKey: string;
   onBack?: () => void;
+  onAdminNav?: () => void;
 }
 
-export function Layout({ children, titleKey, onBack }: LayoutProps) {
+export function Layout({ children, titleKey, onBack, onAdminNav }: LayoutProps) {
   const { language, setLanguage, t } = useLanguage();
 
   return (
@@ -31,7 +32,16 @@ export function Layout({ children, titleKey, onBack }: LayoutProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {onAdminNav && (
+                <button
+                  type="button"
+                  onClick={onAdminNav}
+                  className="text-sm font-medium text-violet-700 hover:text-violet-900 px-2 py-1 rounded-lg hover:bg-violet-50 mr-2"
+                >
+                  {t('page.admin')}
+                </button>
+              )}
               <span className="text-xs text-slate-500 mr-1">Language</span>
               <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 text-xs overflow-hidden">
                 <button

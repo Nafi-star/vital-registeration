@@ -86,7 +86,7 @@ export const initialDivorceRecords: DivorceRecord[] = [
     wife_age: 32,
     wife_nationality: 'Ethiopian',
     date_of_divorce: '2025-01-05',
-    requester: 'Both',
+    requester: 'Mutual',
     city: 'Jimma',
     kebele: 'Hermata Merkato',
     house_number: '654',

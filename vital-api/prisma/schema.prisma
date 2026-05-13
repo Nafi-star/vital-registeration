@@ -7,82 +7,161 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Master record for individuals in the kebele (links vital events).
+model Person {
+  id                 String   @id @default(uuid())
+  person_public_id   String   @unique
+  first_name         String
+  middle_name        String?
+  last_name          String
+  nationality        String
+  date_of_birth      String
+  gender             String
+  city               String
+  kebele             String
+  house_number       String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  birth_as_child     Birth?
+  death_as_deceased  Death?
+  marriages_husband  Marriage[] @relation("MarriageHusband")
+  marriages_wife     Marriage[] @relation("MarriageWife")
+  divorces_husband   Divorce[]    @relation("DivorceHusband")
+  divorces_wife      Divorce[]    @relation("DivorceWife")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actor       String?
+  action      String
+  entity_type String
+  entity_id   String
+  details     String?
+  created_at  DateTime @default(now())
+}
+
 model Birth {
-  id                String   @id @default(uuid())
-  birth_regno       String   @unique
-  child_name        String
-  mother_name       String
-  father_name       String
-  date_of_birth     String
-  sex               String
-  city              String
-  kebele            String
-  house_number      String
-  nationality       String
-  registration_date String
-  status            String   @default("Pending")
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-  created_by        String?
+  id                 String   @id @default(uuid())
+  birth_regno        String   @unique
+  /// Denormalized full name (search / legacy); kept in sync with structured parts when present.
+  child_name         String
+  mother_name        String
+  father_name        String
+  child_first_name   String?
+  child_middle_name  String?
+  child_last_name    String?
+  mother_first_name  String?
+  mother_middle_name String?
+  mother_last_name   String?
+  father_first_name  String?
+  father_middle_name String?
+  father_last_name   String?
+  date_of_birth      String
+  sex                String
+  city               String
+  kebele             String
+  house_number       String?
+  nationality        String
+  registration_date  String
+  status             String   @default("Pending")
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  created_by         String?
+
+  child_person_id String? @unique
+  child_person    Person? @relation(fields: [child_person_id], references: [id])
 }
 
 model Death {
-  id                String   @id @default(uuid())
-  death_regno       String   @unique
-  name              String
-  date_of_birth     String
-  date_of_death     String
-  cause_of_death    String
-  sex               String
-  city              String
-  kebele            String
-  house_number      String
-  nationality       String
-  registration_date String
-  birth_regno       String?
-  status            String   @default("Pending")
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-  created_by        String?
+  id                  String   @id @default(uuid())
+  death_regno         String   @unique
+  name                String
+  deceased_first_name String?
+  deceased_middle_name String?
+  deceased_last_name  String?
+  date_of_birth       String
+  date_of_death       String
+  cause_of_death      String
+  sex                 String
+  city                String
+  kebele              String
+  house_number        String?
+  nationality         String
+  registration_date   String
+  birth_regno         String?
+  status              String   @default("Pending")
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  created_by          String?
+
+  deceased_person_id String? @unique
+  deceased_person    Person? @relation(fields: [deceased_person_id], references: [id])
 }
 
 model Marriage {
-  id                 String   @id @default(uuid())
-  marriage_regno     String   @unique
-  husband_name       String
-  husband_age        Int
+  id                  String   @id @default(uuid())
+  marriage_regno      String   @unique
+  husband_name        String
+  husband_first_name  String?
+  husband_middle_name String?
+  husband_last_name   String?
+  husband_age         Int
   husband_nationality String
-  wife_name          String
-  wife_age           Int
-  wife_nationality   String
-  date_of_marriage   String
-  city               String
-  kebele             String
-  house_number       String
-  registration_date  String
-  status             String   @default("Pending")
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
-  created_by         String?
+  wife_name           String
+  wife_first_name     String?
+  wife_middle_name    String?
+  wife_last_name      String?
+  wife_age            Int
+  wife_nationality    String
+  date_of_marriage    String
+  city                String
+  kebele              String
+  house_number        String?
+  registration_date   String
+  status              String   @default("Pending")
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  created_by          String?
+
+  husband_person_id String?
+  wife_person_id    String?
+  husband_person    Person? @relation("MarriageHusband", fields: [husband_person_id], references: [id])
+  wife_person       Person? @relation("MarriageWife", fields: [wife_person_id], references: [id])
+
+  divorces Divorce[]
 }
 
 model Divorce {
-  id                 String   @id @default(uuid())
-  divorce_regno      String   @unique
-  husband_name       String
-  husband_age        Int
+  id                  String   @id @default(uuid())
+  divorce_regno       String   @unique
+  husband_name        String
+  husband_first_name  String?
+  husband_middle_name String?
+  husband_last_name   String?
+  husband_age         Int
   husband_nationality String
-  wife_name          String
-  wife_age           Int
-  wife_nationality   String
-  date_of_divorce    String
-  requester          String
-  city               String
-  kebele             String
-  house_number       String
-  registration_date  String
-  status             String   @default("Pending")
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
-  created_by         String?
+  wife_name           String
+  wife_first_name     String?
+  wife_middle_name    String?
+  wife_last_name      String?
+  wife_age            Int
+  wife_nationality    String
+  date_of_divorce     String
+  requester           String
+  city                String
+  kebele              String
+  house_number        String?
+  registration_date   String
+  status              String   @default("Pending")
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  created_by          String?
+
+  husband_person_id String?
+  wife_person_id    String?
+  marriage_id       String?
+  husband_person    Person?   @relation("DivorceHusband", fields: [husband_person_id], references: [id])
+  wife_person       Person?   @relation("DivorceWife", fields: [wife_person_id], references: [id])
+  marriage          Marriage? @relation(fields: [marriage_id], references: [id])
 }

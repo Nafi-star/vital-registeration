@@ -1,5 +1,6 @@
-import { Baby, Heart, Skull, UserX, Search, FileText } from 'lucide-react';
+import { Baby, Heart, Skull, UserX, Search, FileText, ScrollText, Shield, ClipboardList } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
+import type { StatsOverview, RecordStatus } from '../types';
 
 interface DashboardStats {
   totalBirths: number;
@@ -9,11 +10,13 @@ interface DashboardStats {
 }
 
 interface DashboardProps {
-  onNavigate: (page: string) => void;
+  onNavigate: (page: string, navOpts?: { searchStatus?: 'all' | RecordStatus }) => void;
   stats: DashboardStats;
+  statsOverview: StatsOverview | null;
+  isAdmin: boolean;
 }
 
-export function Dashboard({ onNavigate, stats }: DashboardProps) {
+export function Dashboard({ onNavigate, stats, statsOverview, isAdmin }: DashboardProps) {
   const { t } = useLanguage();
 
   const totalRecords =
@@ -24,7 +27,16 @@ export function Dashboard({ onNavigate, stats }: DashboardProps) {
     return Math.round((value / totalRecords) * 100);
   };
 
-  const cards = [
+  const adminHubCard = {
+    id: 'admin',
+    title: t('page.admin'),
+    description: t('dashboard.card.admin.description'),
+    icon: Shield,
+    color: 'bg-violet-700',
+    hoverColor: 'hover:bg-violet-800',
+  };
+
+  const registerCards = [
     {
       id: 'birth',
       title: t('page.birth'),
@@ -57,6 +69,18 @@ export function Dashboard({ onNavigate, stats }: DashboardProps) {
       color: 'bg-amber-600',
       hoverColor: 'hover:bg-amber-700',
     },
+  ];
+
+  const activityCard = {
+    id: 'activity',
+    title: t('page.activity'),
+    description: t('dashboard.card.activity.description'),
+    icon: ScrollText,
+    color: 'bg-violet-600',
+    hoverColor: 'hover:bg-violet-700',
+  };
+
+  const publicCards = [
     {
       id: 'search',
       title: t('page.search'),
@@ -74,6 +98,20 @@ export function Dashboard({ onNavigate, stats }: DashboardProps) {
       hoverColor: 'hover:bg-indigo-700',
     },
   ];
+
+  const cards = [adminHubCard, ...(isAdmin ? [...registerCards, activityCard] : []), ...publicCards];
+
+  const maxTrend = statsOverview
+    ? Math.max(
+        1,
+        ...statsOverview.last6Months.flatMap((m) => [
+          m.births,
+          m.deaths,
+          m.marriages,
+          m.divorces,
+        ]),
+      )
+    : 1;
 
   return (
     <div className="space-y-8">
@@ -94,11 +132,11 @@ export function Dashboard({ onNavigate, stats }: DashboardProps) {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => onNavigate('birth')}
+                onClick={() => onNavigate(isAdmin ? 'birth' : 'admin')}
                 className="inline-flex items-center gap-2 rounded-full bg-white text-sky-700 px-4 py-2 text-sm font-semibold shadow-sm hover:bg-slate-50 transition-colors"
               >
-                <Baby className="w-4 h-4" />
-                {t('dashboard.hero.ctaPrimary')}
+                {isAdmin ? <Baby className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                {isAdmin ? t('dashboard.hero.ctaPrimary') : t('dashboard.hero.ctaNeedAdmin')}
               </button>
               <button
                 type="button"
@@ -139,6 +177,146 @@ export function Dashboard({ onNavigate, stats }: DashboardProps) {
           </div>
         </div>
       </div>
+
+      {isAdmin && statsOverview?.workflow && statsOverview.workflow.totalPending > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 sm:px-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
+          <div className="flex gap-3">
+            <div className="shrink-0 rounded-lg bg-amber-100 p-2 h-fit">
+              <ClipboardList className="w-6 h-6 text-amber-800" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-amber-950">
+                {t('dashboard.pendingBanner.title')}
+              </h3>
+              <p className="text-sm text-amber-900/90 mt-1">
+                {t('dashboard.pendingBanner.body')
+                  .replace('{{total}}', String(statsOverview.workflow.totalPending))
+                  .replace('{{b}}', String(statsOverview.workflow.pending.births))
+                  .replace('{{d}}', String(statsOverview.workflow.pending.deaths))
+                  .replace('{{m}}', String(statsOverview.workflow.pending.marriages))
+                  .replace('{{dv}}', String(statsOverview.workflow.pending.divorces))}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('search', { searchStatus: 'Pending' })}
+            className="shrink-0 inline-flex items-center justify-center rounded-lg bg-amber-700 hover:bg-amber-800 text-white px-4 py-2.5 text-sm font-medium"
+          >
+            {t('dashboard.pendingBanner.cta')}
+          </button>
+        </div>
+      )}
+
+      {statsOverview && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">
+              {t('dashboard.monthly.title')}
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">{statsOverview.thisMonth.month}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              {(
+                [
+                  [t('dashboard.stats.births'), statsOverview.thisMonth.births, 'bg-blue-500'],
+                  [t('dashboard.stats.deaths'), statsOverview.thisMonth.deaths, 'bg-slate-600'],
+                  [t('dashboard.stats.marriages'), statsOverview.thisMonth.marriages, 'bg-rose-500'],
+                  [t('dashboard.stats.divorces'), statsOverview.thisMonth.divorces, 'bg-amber-500'],
+                ] as const
+              ).map(([label, val, bg], idx) => (
+                <div key={idx} className="rounded-lg border border-slate-100 p-3">
+                  <p className="text-xs text-slate-500 mb-1">{label}</p>
+                  <p className={`text-2xl font-bold text-white rounded-md py-2 ${bg}`}>{val}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">{t('dashboard.trends.title')}</h3>
+            <p className="text-xs text-slate-500 mb-4">{t('dashboard.trends.subtitle')}</p>
+            <div className="space-y-3">
+              {statsOverview.last6Months.map((m) => (
+                <div key={m.month}>
+                  <div className="flex justify-between text-[11px] text-slate-600 mb-1">
+                    <span>{m.month}</span>
+                    <span>
+                      B{m.births} · D{m.deaths} · M{m.marriages} · DV{m.divorces}
+                    </span>
+                  </div>
+                  <div className="flex h-2 rounded-full overflow-hidden bg-slate-100 gap-px">
+                    <div
+                      className="bg-blue-500"
+                      style={{ flexGrow: Math.max(0.05, m.births / maxTrend) }}
+                      title={t('dashboard.trends.legend.births')}
+                    />
+                    <div
+                      className="bg-slate-600"
+                      style={{ flexGrow: Math.max(0.05, m.deaths / maxTrend) }}
+                      title={t('dashboard.trends.legend.deaths')}
+                    />
+                    <div
+                      className="bg-rose-500"
+                      style={{ flexGrow: Math.max(0.05, m.marriages / maxTrend) }}
+                      title={t('dashboard.trends.legend.marriages')}
+                    />
+                    <div
+                      className="bg-amber-500"
+                      style={{ flexGrow: Math.max(0.05, m.divorces / maxTrend) }}
+                      title={t('dashboard.trends.legend.divorces')}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-slate-600">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-blue-500" /> {t('dashboard.trends.legend.births')}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-slate-600" /> {t('dashboard.trends.legend.deaths')}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-rose-500" /> {t('dashboard.trends.legend.marriages')}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-amber-500" /> {t('dashboard.trends.legend.divorces')}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-3">
+                  {t('dashboard.kebele.title')}
+                </h3>
+                <ul className="space-y-2 text-xs">
+                  {statsOverview.topKebeles.slice(0, 6).map((row) => (
+                    <li key={row.kebele} className="flex justify-between gap-2">
+                      <span className="text-slate-700 truncate">{row.kebele}</span>
+                      <span className="font-semibold text-slate-900">{row.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-3">
+                  {t('dashboard.deathCauses.title')}
+                </h3>
+                <ul className="space-y-2 text-xs">
+                  {statsOverview.topDeathCauses.slice(0, 6).map((row) => (
+                    <li key={row.cause} className="flex justify-between gap-2">
+                      <span className="text-slate-700 truncate">{row.cause}</span>
+                      <span className="font-semibold text-slate-900">{row.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats + quick actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

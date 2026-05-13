@@ -1,10 +1,23 @@
 import { useState } from 'react';
-import { Search, FileText, Eye } from 'lucide-react';
+import { Search, FileText, Eye, User, Pencil, Download } from 'lucide-react';
 import { BirthRecord, DeathRecord, MarriageRecord, DivorceRecord, RecordStatus } from '../types';
 import { useLanguage } from '../LanguageContext';
+import { personsApi, birthsApi, deathsApi, marriagesApi, divorcesApi } from '../api';
+import { useAuth } from '../AuthContext';
+import {
+  displayChildName,
+  displayMotherName,
+  displayFatherName,
+  displayDeceasedName,
+  displaySpouseName,
+} from '../utils/names';
+import { buildCsv, downloadCsvFile } from '../utils/csv';
 
 interface SearchRecordsProps {
+  defaultStatusFilter?: 'all' | RecordStatus;
   onViewCertificate: (type: string, record: unknown) => void;
+  onEditRecord?: (type: 'birth' | 'death' | 'marriage' | 'divorce', record: unknown) => void;
+  onRecordsMutate?: () => void;
   births: BirthRecord[];
   deaths: DeathRecord[];
   marriages: MarriageRecord[];
@@ -17,10 +30,38 @@ const statusClasses: Record<RecordStatus, string> = {
   Rejected: 'bg-rose-50 text-rose-600 border-rose-200',
 };
 
-export function SearchRecords({ onViewCertificate, births, deaths, marriages, divorces }: SearchRecordsProps) {
+function registrationInRange(registrationDate: string, from: string, to: string) {
+  if (!from && !to) return true;
+  if (from && registrationDate < from) return false;
+  if (to && registrationDate > to) return false;
+  return true;
+}
+
+export function SearchRecords({
+  defaultStatusFilter = 'all',
+  onViewCertificate,
+  onEditRecord,
+  onRecordsMutate,
+  births,
+  deaths,
+  marriages,
+  divorces,
+}: SearchRecordsProps) {
+  const [statusBusy, setStatusBusy] = useState(false);
+  const { isAdmin } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<'all' | RecordStatus>('all');
+  const [selectedStatus, setSelectedStatus] = useState<'all' | RecordStatus>(
+    defaultStatusFilter === 'all' ? 'all' : defaultStatusFilter,
+  );
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [kebeleFilter, setKebeleFilter] = useState('');
+  const [deathCauseFilter, setDeathCauseFilter] = useState('');
+  const [personQuery, setPersonQuery] = useState('');
+  const [personHistory, setPersonHistory] = useState<unknown>(null);
+  const [personLoading, setPersonLoading] = useState(false);
+  const [personError, setPersonError] = useState(false);
   const { t } = useLanguage();
 
   const statusLabel: Record<RecordStatus, string> = {
@@ -29,22 +70,50 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
     Rejected: t('search.form.status.rejected'),
   };
 
+  const setRecordStatus = async (
+    kind: 'birth' | 'death' | 'marriage' | 'divorce',
+    id: string,
+    status: RecordStatus,
+  ) => {
+    setStatusBusy(true);
+    try {
+      if (kind === 'birth') await birthsApi.updateStatus(id, status);
+      else if (kind === 'death') await deathsApi.updateStatus(id, status);
+      else if (kind === 'marriage') await marriagesApi.updateStatus(id, status);
+      else await divorcesApi.updateStatus(id, status);
+      onRecordsMutate?.();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
   const filterRecords = <T extends { status?: RecordStatus } & Record<string, unknown>>(records: T[]): T[] => {
     return records.filter((record) => {
       const matchesStatus =
         selectedStatus === 'all' || record.status === selectedStatus || record.status === undefined;
 
       if (!searchTerm) {
-        return matchesStatus;
+        if (!matchesStatus) return false;
+      } else {
+        const textMatch = Object.values(record).some(
+          (value) =>
+            typeof value === 'string' && value.toLowerCase().includes(searchTerm.toLowerCase()),
+        );
+        if (!matchesStatus || !textMatch) return false;
       }
 
-      const textMatch = Object.values(record).some(
-        (value) =>
-          typeof value === 'string' &&
-          value.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const k = kebeleFilter.trim().toLowerCase();
+      if (k) {
+        const keb = String(record.kebele ?? '').toLowerCase();
+        if (!keb.includes(k)) return false;
+      }
 
-      return matchesStatus && textMatch;
+      const regDate = String(record.registration_date ?? '');
+      if (!registrationInRange(regDate, dateFrom, dateTo)) return false;
+
+      return true;
     });
   };
 
@@ -52,10 +121,14 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
     selectedType === 'all' || selectedType === 'birth'
       ? (filterRecords(births as (BirthRecord & Record<string, unknown>)[]) as BirthRecord[])
       : [];
-  const filteredDeaths =
+  const filteredDeathsRaw =
     selectedType === 'all' || selectedType === 'death'
       ? (filterRecords(deaths as (DeathRecord & Record<string, unknown>)[]) as DeathRecord[])
       : [];
+  const dc = deathCauseFilter.trim().toLowerCase();
+  const filteredDeaths = dc
+    ? filteredDeathsRaw.filter((d) => d.cause_of_death.toLowerCase().includes(dc))
+    : filteredDeathsRaw;
   const filteredMarriages =
     selectedType === 'all' || selectedType === 'marriage'
       ? (filterRecords(marriages as (MarriageRecord & Record<string, unknown>)[]) as MarriageRecord[])
@@ -65,10 +138,97 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
       ? (filterRecords(divorces as (DivorceRecord & Record<string, unknown>)[]) as DivorceRecord[])
       : [];
 
+  const totalFilteredRows =
+    filteredBirths.length + filteredDeaths.length + filteredMarriages.length + filteredDivorces.length;
+
+  const handleExportCsv = () => {
+    const headers = ['record_type', 'reg_no', 'name_summary', 'registration_date', 'status', 'kebele', 'city'];
+    const rows: (string | number)[][] = [];
+    for (const b of filteredBirths) {
+      rows.push([
+        'birth',
+        b.birth_regno,
+        displayChildName(b),
+        b.registration_date,
+        b.status ?? 'Pending',
+        b.kebele,
+        b.city,
+      ]);
+    }
+    for (const d of filteredDeaths) {
+      rows.push([
+        'death',
+        d.death_regno,
+        displayDeceasedName(d),
+        d.registration_date,
+        d.status ?? 'Pending',
+        d.kebele,
+        d.city,
+      ]);
+    }
+    for (const m of filteredMarriages) {
+      const pair = `${displaySpouseName('husband', m)} / ${displaySpouseName('wife', m)}`;
+      rows.push([
+        'marriage',
+        m.marriage_regno,
+        pair,
+        m.registration_date,
+        m.status ?? 'Pending',
+        m.kebele,
+        m.city,
+      ]);
+    }
+    for (const dv of filteredDivorces) {
+      const pair = `${displaySpouseName('husband', dv)} / ${displaySpouseName('wife', dv)}`;
+      rows.push([
+        'divorce',
+        dv.divorce_regno,
+        pair,
+        dv.registration_date,
+        dv.status ?? 'Pending',
+        dv.kebele,
+        dv.city,
+      ]);
+    }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadCsvFile(`vital-records-${stamp}.csv`, buildCsv(headers, rows));
+  };
+
+  const loadPersonHistory = async () => {
+    const q = personQuery.trim();
+    if (!q) return;
+    setPersonLoading(true);
+    setPersonError(false);
+    setPersonHistory(null);
+    try {
+      let hist: unknown = null;
+      if (/^P\d/i.test(q)) {
+        hist = await personsApi.history(q);
+      }
+      if (!hist) {
+        const matches = await personsApi.search(q);
+        const direct =
+          matches.find((m) => m.person_public_id.toLowerCase() === q.toLowerCase()) ?? matches[0];
+        if (direct) {
+          hist = await personsApi.history(direct.person_public_id);
+        }
+      }
+      if (!hist) {
+        setPersonError(true);
+        return;
+      }
+      setPersonHistory(hist);
+    } catch {
+      setPersonError(true);
+    } finally {
+      setPersonLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               {t('search.form.title')}
@@ -117,7 +277,105 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
               <option value="divorce">{t('search.form.recordType.divorce')}</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              {t('search.form.dateFrom')}
+            </label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              {t('search.form.dateTo')}
+            </label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              {t('search.form.kebeleFilter')}
+            </label>
+            <input
+              type="text"
+              value={kebeleFilter}
+              onChange={(e) => setKebeleFilter(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            />
+          </div>
+          {(selectedType === 'all' || selectedType === 'death') && (
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                {t('search.form.deathCause')}
+              </label>
+              <input
+                type="text"
+                value={deathCauseFilter}
+                onChange={(e) => setDeathCauseFilter(e.target.value)}
+                placeholder={t('search.form.placeholder')}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              />
+            </div>
+          )}
         </div>
+      </div>
+
+      {isAdmin && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-sm text-slate-600">
+            {t('search.export.summary').replace('{{count}}', String(totalFilteredRows))}
+          </p>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={totalFilteredRows === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-800 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <Download className="w-4 h-4" />
+            {t('search.export.button')}
+          </button>
+        </div>
+      )}
+
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
+          <User className="w-5 h-5 text-indigo-600" />
+          {t('search.person.title')}
+        </h3>
+        <p className="text-xs text-slate-500 mb-4">{t('search.person.summary')}</p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={personQuery}
+            onChange={(e) => setPersonQuery(e.target.value)}
+            placeholder={t('search.person.placeholder')}
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+          <button
+            type="button"
+            onClick={() => void loadPersonHistory()}
+            disabled={personLoading}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {personLoading ? t('search.person.loading') : t('search.person.lookup')}
+          </button>
+        </div>
+        {personError && (
+          <p className="mt-3 text-sm text-rose-600">{t('search.person.error')}</p>
+        )}
+        {personHistory != null && !personError && (
+          <pre className="mt-4 max-h-80 overflow-auto rounded-lg bg-slate-900 text-slate-100 text-xs p-4">
+            {JSON.stringify(personHistory, null, 2)}
+          </pre>
+        )}
       </div>
 
       {filteredBirths.length > 0 && (
@@ -152,12 +410,12 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredBirths.map((record) => (
-                  <tr key={record.birth_regno} className="hover:bg-slate-50">
+                  <tr key={record.id ?? record.birth_regno} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm text-slate-900">{record.birth_regno}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.child_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displayChildName(record)}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{record.date_of_birth}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {record.mother_name} & {record.father_name}
+                      {displayMotherName(record)} & {displayFatherName(record)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span
@@ -169,13 +427,46 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => onViewCertificate('birth', record)}
-                        className="text-blue-600 hover:text-blue-700 flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Eye className="w-4 h-4" />
-                        {t('search.table.action.viewCertificate')}
-                      </button>
+                      <div className="flex flex-col gap-1 items-start">
+                        {onEditRecord && record.id && isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onEditRecord('birth', record)}
+                            className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            {t('search.table.action.editRecord')}
+                          </button>
+                        )}
+                        {isAdmin && record.id && (record.status ?? 'Pending') === 'Pending' && (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('birth', record.id!, 'Approved')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.approve')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('birth', record.id!, 'Rejected')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.reject')}
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onViewCertificate('birth', record)}
+                          className="text-blue-600 hover:text-blue-700 flex items-center gap-1 text-sm font-medium"
+                        >
+                          <Eye className="w-4 h-4" />
+                          {t('search.table.action.viewCertificate')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -217,9 +508,9 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredDeaths.map((record) => (
-                  <tr key={record.death_regno} className="hover:bg-slate-50">
+                  <tr key={record.id ?? record.death_regno} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm text-slate-900">{record.death_regno}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displayDeceasedName(record)}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{record.date_of_death}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{record.cause_of_death}</td>
                     <td className="px-4 py-3 text-sm">
@@ -232,13 +523,46 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => onViewCertificate('death', record)}
-                        className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Eye className="w-4 h-4" />
-                        {t('search.table.action.viewCertificate')}
-                      </button>
+                      <div className="flex flex-col gap-1 items-start">
+                        {onEditRecord && record.id && isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onEditRecord('death', record)}
+                            className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            {t('search.table.action.editRecord')}
+                          </button>
+                        )}
+                        {isAdmin && record.id && (record.status ?? 'Pending') === 'Pending' && (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('death', record.id!, 'Approved')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.approve')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('death', record.id!, 'Rejected')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.reject')}
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onViewCertificate('death', record)}
+                          className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                        >
+                          <Eye className="w-4 h-4" />
+                          {t('search.table.action.viewCertificate')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -280,10 +604,10 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredMarriages.map((record) => (
-                  <tr key={record.marriage_regno} className="hover:bg-slate-50">
+                  <tr key={record.id ?? record.marriage_regno} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm text-slate-900">{record.marriage_regno}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.husband_name}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.wife_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displaySpouseName('husband', record)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displaySpouseName('wife', record)}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{record.date_of_marriage}</td>
                     <td className="px-4 py-3 text-sm">
                       <span
@@ -295,13 +619,46 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => onViewCertificate('marriage', record)}
-                        className="text-rose-600 hover:text-rose-700 flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Eye className="w-4 h-4" />
-                        {t('search.table.action.viewCertificate')}
-                      </button>
+                      <div className="flex flex-col gap-1 items-start">
+                        {onEditRecord && record.id && isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onEditRecord('marriage', record)}
+                            className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            {t('search.table.action.editRecord')}
+                          </button>
+                        )}
+                        {isAdmin && record.id && (record.status ?? 'Pending') === 'Pending' && (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('marriage', record.id!, 'Approved')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.approve')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('marriage', record.id!, 'Rejected')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.reject')}
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onViewCertificate('marriage', record)}
+                          className="text-rose-600 hover:text-rose-700 flex items-center gap-1 text-sm font-medium"
+                        >
+                          <Eye className="w-4 h-4" />
+                          {t('search.table.action.viewCertificate')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -343,10 +700,10 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredDivorces.map((record) => (
-                  <tr key={record.divorce_regno} className="hover:bg-slate-50">
+                  <tr key={record.id ?? record.divorce_regno} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm text-slate-900">{record.divorce_regno}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.husband_name}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900">{record.wife_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displaySpouseName('husband', record)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-900">{displaySpouseName('wife', record)}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{record.date_of_divorce}</td>
                     <td className="px-4 py-3 text-sm">
                       <span
@@ -358,13 +715,46 @@ export function SearchRecords({ onViewCertificate, births, deaths, marriages, di
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => onViewCertificate('divorce', record)}
-                        className="text-amber-600 hover:text-amber-700 flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Eye className="w-4 h-4" />
-                        {t('search.table.action.viewCertificate')}
-                      </button>
+                      <div className="flex flex-col gap-1 items-start">
+                        {onEditRecord && record.id && isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onEditRecord('divorce', record)}
+                            className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            {t('search.table.action.editRecord')}
+                          </button>
+                        )}
+                        {isAdmin && record.id && (record.status ?? 'Pending') === 'Pending' && (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('divorce', record.id!, 'Approved')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.approve')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={statusBusy}
+                              onClick={() => setRecordStatus('divorce', record.id!, 'Rejected')}
+                              className="text-xs font-medium px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            >
+                              {t('admin.search.reject')}
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onViewCertificate('divorce', record)}
+                          className="text-amber-600 hover:text-amber-700 flex items-center gap-1 text-sm font-medium"
+                        >
+                          <Eye className="w-4 h-4" />
+                          {t('search.table.action.viewCertificate')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
